@@ -1,103 +1,62 @@
-import altair as alt
-import pandas as pd
 import streamlit as st
-from vega_datasets import data
+import pandas as pd
+import altair as alt
+from nsepython import nse_eq
 
+# Set up the Streamlit page configuration
 st.set_page_config(
-    page_title="Time series annotations", page_icon="⬇", layout="centered"
+    page_title="Indian Stock Price Visualization",
+    page_icon="📈",
+    layout="centered"
 )
 
-@st.cache_data
-def get_data():
-    # Fetch data and filter to include the most recent dates dynamically
-    source = data.stocks()
-    source = source[source.date >= pd.Timestamp.now() - pd.DateOffset(years=5)]  # Last 5 years
-    return source
+# Title of the application
+st.title("📈 Indian Stock Price Visualization")
 
-@st.cache_data(ttl=60 * 60 * 24)
-def get_chart(data):
-    hover = alt.selection_single(
-        fields=["date"],
-        nearest=True,
-        on="mouseover",
-        empty="none",
-    )
+# Input: Stock symbol
+stock_symbol = st.text_input("Enter the NSE stock symbol (e.g., RELIANCE):", value="RELIANCE")
 
-    lines = (
-        alt.Chart(data, height=500, title="Evolution of stock prices")
-        .mark_line()
-        .encode(
-            x=alt.X("date", title="Date"),
-            y=alt.Y("price", title="Price"),
-            color="symbol",
+# Fetch stock data
+if stock_symbol:
+    try:
+        # Fetch the latest stock data
+        stock_data = nse_eq(stock_symbol)
+        
+        # Extract relevant information
+        company_name = stock_data['info']['companyName']
+        last_price = stock_data['priceInfo']['lastPrice']
+        change = stock_data['priceInfo']['change']
+        p_change = stock_data['priceInfo']['pChange']
+        day_high = stock_data['priceInfo']['intraDayHighLow']['max']
+        day_low = stock_data['priceInfo']['intraDayHighLow']['min']
+        previous_close = stock_data['priceInfo']['previousClose']
+        
+        # Display stock information
+        st.subheader(f"{company_name} ({stock_symbol})")
+        st.metric(label="Last Price", value=f"₹{last_price}", delta=f"{p_change}%")
+        st.write(f"**Day High:** ₹{day_high}")
+        st.write(f"**Day Low:** ₹{day_low}")
+        st.write(f"**Previous Close:** ₹{previous_close}")
+        st.write(f"**Change:** ₹{change} ({p_change}%)")
+        
+        # Prepare data for visualization
+        price_data = {
+            'Metric': ['Last Price', 'Day High', 'Day Low', 'Previous Close'],
+            'Price': [last_price, day_high, day_low, previous_close]
+        }
+        df = pd.DataFrame(price_data)
+        
+        # Create Altair chart
+        chart = alt.Chart(df).mark_bar().encode(
+            x=alt.X('Metric', sort=None),
+            y='Price',
+            color='Metric'
+        ).properties(
+            title=f"Price Metrics for {company_name}"
         )
-    )
-
-    points = lines.transform_filter(hover).mark_circle(size=65)
-
-    tooltips = (
-        alt.Chart(data)
-        .mark_rule()
-        .encode(
-            x="yearmonthdate(date)",
-            y="price",
-            opacity=alt.condition(hover, alt.value(0.3), alt.value(0)),
-            tooltip=[
-                alt.Tooltip("date", title="Date"),
-                alt.Tooltip("price", title="Price (USD)"),
-            ],
-        )
-        .add_selection(hover)
-    )
-
-    return (lines + points + tooltips).interactive()
-
-st.title("⬇ Time series annotations")
-st.write("Give more context to your time series using annotations!")
-
-col1, col2, col3 = st.columns(3)
-with col1:
-    ticker = st.text_input("Choose a ticker (⬇💬👇ℹ️ ...)", value="⬇")
-with col2:
-    ticker_dx = st.slider(
-        "Horizontal offset", min_value=-30, max_value=30, step=1, value=0
-    )
-with col3:
-    ticker_dy = st.slider(
-        "Vertical offset", min_value=-30, max_value=30, step=1, value=-10
-    )
-
-# Fetch updated data
-source = get_data()
-chart = get_chart(source)
-
-# Input annotations
-ANNOTATIONS = [
-    ("Mar 01, 2018", "Significant market day"),
-    ("Dec 01, 2020", "Market sees growth post-pandemic"),
-    ("Nov 01, 2021", "Tech stocks rally"),
-    ("Dec 01, 2022", "Volatility amidst inflation concerns"),
-]
-
-# Create a chart with annotations
-annotations_df = pd.DataFrame(ANNOTATIONS, columns=["date", "event"])
-annotations_df.date = pd.to_datetime(annotations_df.date)
-annotations_df["y"] = 0
-annotation_layer = (
-    alt.Chart(annotations_df)
-    .mark_text(size=15, text=ticker, dx=ticker_dx, dy=ticker_dy, align="center")
-    .encode(
-        x="date:T",
-        y=alt.Y("y:Q"),
-        tooltip=["event"],
-    )
-    .interactive()
-)
-
-# Display both charts together
-st.altair_chart((chart + annotation_layer).interactive(), use_container_width=True)
-
-st.write("## Code")
-st.write(
-    "See more in our public [GitHub repository](https://github.com/streamlit/example-app-time-series-annotation)"
-)
+        
+        # Display the chart
+        st.altair_chart(chart, use_container_width=True)
+        
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
